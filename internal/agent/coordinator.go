@@ -304,7 +304,28 @@ func (c *coordinator) RunAccepted(ctx context.Context, accept *AcceptedRun, sess
 // Accepted so sessionAgent.Run can consume the accept reservation under
 // dispatchMu; when nil (the in-process/local path) no accept tracking
 // applies.
-func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
+func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID string, prompt string, attachments ...message.Attachment) (result *fantasy.AgentResult, retErr error) {
+	var (
+		latest    notify.RunComplete
+		hasLatest bool
+	)
+	defer func() {
+		if !hasLatest && retErr != nil {
+			latest = notify.RunComplete{
+				SessionID: sessionID, RunID: RunIDFromContext(ctx),
+				Error: retErr.Error(), Cancelled: errors.Is(retErr, context.Canceled),
+				FinishedAt: time.Now(),
+			}
+			hasLatest = true
+		}
+		if hasLatest && c.runComplete != nil {
+			completeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			c.runComplete.PublishMustDeliver(completeCtx, pubsub.UpdatedEvent, latest)
+			MarkRunCompletePublished(ctx)
+		}
+	}()
+
 	if err := c.readyWg.Wait(); err != nil {
 		return nil, err
 	}
@@ -367,10 +388,6 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	// exactly once after retries resolve, via PublishMustDeliver, so
 	// a momentarily-full subscriber buffer can't silently drop the
 	// terminal event.
-	var (
-		latest    notify.RunComplete
-		hasLatest bool
-	)
 	onComplete := func(rc notify.RunComplete) {
 		latest = rc
 		hasLatest = true
@@ -421,14 +438,6 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 		})
 	}
 
-	if hasLatest && c.runComplete != nil {
-		c.runComplete.PublishMustDeliver(ctx, pubsub.UpdatedEvent, latest)
-		// Signal to the dispatcher (backend.runAgent) that the
-		// authoritative terminal RunComplete for this run was already
-		// emitted, so it does not publish a duplicate fallback for the
-		// error it is about to receive.
-		MarkRunCompletePublished(ctx)
-	}
 	return result, originalErr
 }
 

@@ -1249,12 +1249,13 @@ func (w *ClientWorkspace) translateEvent(ev any) tea.Msg {
 		return pubsub.Event[notify.RunComplete]{
 			Type: e.Type,
 			Payload: notify.RunComplete{
-				SessionID: e.Payload.SessionID,
-				RunID:     e.Payload.RunID,
-				MessageID: e.Payload.MessageID,
-				Text:      e.Payload.Text,
-				Error:     e.Payload.Error,
-				Cancelled: e.Payload.Cancelled,
+				SessionID:  e.Payload.SessionID,
+				RunID:      e.Payload.RunID,
+				MessageID:  e.Payload.MessageID,
+				Text:       e.Payload.Text,
+				Error:      e.Payload.Error,
+				Cancelled:  e.Payload.Cancelled,
+				FinishedAt: e.Payload.FinishedAt,
 			},
 		}
 	case pubsub.Event[proto.SkillsEvent]:

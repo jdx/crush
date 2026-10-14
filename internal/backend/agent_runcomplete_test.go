@@ -145,7 +145,7 @@ func TestRunAgent_CancellationPublishesNoErrorTerminal(t *testing.T) {
 	t.Parallel()
 	b, _ := newTestBackend(t)
 	ws := insertRunCompleteWorkspace(t, b, context.Background(),
-		&errorCoordinator{err: context.Canceled})
+		&errorCoordinator{err: context.Canceled, markPublished: true})
 
 	subCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -160,5 +160,27 @@ func TestRunAgent_CancellationPublishesNoErrorTerminal(t *testing.T) {
 	case ev := <-ch:
 		t.Fatalf("cancellation must not publish a terminal RunComplete: %+v", ev.Payload)
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+func TestRunAgent_UnpublishedFailureCompletesEverySubmission(t *testing.T) {
+	t.Parallel()
+	for _, runID := range []string{"", "correlated"} {
+		for _, runErr := range []error{errors.New("pre-agent failure"), context.Canceled} {
+			t.Run(runID+"/"+runErr.Error(), func(t *testing.T) {
+				t.Parallel()
+				b, _ := newTestBackend(t)
+				ws := insertRunCompleteWorkspace(t, b, t.Context(), &errorCoordinator{err: runErr})
+				ch := ws.RunCompletions().Subscribe(t.Context())
+				require.NoError(t, b.SendMessage(ws.ID, proto.AgentMessage{SessionID: "S1", RunID: runID, Prompt: "hi"}))
+				ws.runWG.Wait()
+				require.Len(t, ch, 1)
+				rc := (<-ch).Payload
+				require.Equal(t, runID, rc.RunID)
+				require.Equal(t, "S1", rc.SessionID)
+				require.Equal(t, runErr.Error(), rc.Error)
+				require.Equal(t, errors.Is(runErr, context.Canceled), rc.Cancelled)
+			})
+		}
 	}
 }

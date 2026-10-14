@@ -10,7 +10,8 @@ import (
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/question"
 	"github.com/charmbracelet/crush/internal/session"
-	"github.com/charmbracelet/crush/internal/ui/common"	"github.com/charmbracelet/crush/internal/ui/dialog"
+	"github.com/charmbracelet/crush/internal/ui/common"
+	"github.com/charmbracelet/crush/internal/ui/dialog"
 	"github.com/stretchr/testify/require"
 )
 
@@ -161,13 +162,13 @@ func TestProgramStatusCompletionLifecycle(t *testing.T) {
 		prior   tea.ProgramState
 		want    tea.ProgramState
 	}{
-		{"success idle", notify.FinishIdleSuccess, false, 0, "", tea.ProgramStateDone},
+		{"success notification alone", notify.FinishIdleSuccess, false, 0, "", tea.ProgramStateIdle},
 		{"queued work", notify.FinishContinuing, true, 0, "", tea.ProgramStateWorking},
 		{"handoff admission gap", notify.FinishContinuing, false, 0, "", tea.ProgramStateIdle},
 		{"new work", notify.FinishIdleSuccess, true, 0, "", tea.ProgramStateWorking},
 		{"pending submission", notify.FinishIdleSuccess, false, 1, "", tea.ProgramStateWorking},
 		{"cancelled", notify.FinishIdleUnsuccessful, false, 0, "", tea.ProgramStateIdle},
-		{"cancelled after success", notify.FinishIdleUnsuccessful, false, 0, tea.ProgramStateDone, tea.ProgramStateIdle},
+		{"unsuccessful owner preserves logical success", notify.FinishIdleUnsuccessful, false, 0, tea.ProgramStateDone, tea.ProgramStateDone},
 		{"failed", notify.FinishIdleUnsuccessful, false, 0, tea.ProgramStateError, tea.ProgramStateError},
 		{"legacy", "", false, 0, "", tea.ProgramStateIdle},
 	} {
@@ -201,6 +202,10 @@ func TestProgramStatusSubmissionReturn(t *testing.T) {
 			warmCaches(u, true)
 			u.pendingSubmissions = 1
 			u.activityFor("s1").pending = 1
+			if tc.err == nil {
+				_, cmd := u.Update(runCompleteMsg(notify.RunComplete{}))
+				runCmds(u, cmd)
+			}
 			runCmds(u, u.handleAgentNotification(notify.Notification{
 				Type: notify.TypeAgentFinished, FinishState: notify.FinishIdleSuccess, SessionID: "s1",
 			}))
@@ -225,7 +230,7 @@ func TestProgramStatusIgnoresOtherSessionOutcomes(t *testing.T) {
 
 	u.turnOutcome = tea.ProgramStateDone
 	u.sendMessage("new work")
-	t.Cleanup(common.StopTurn)
+	t.Cleanup(func() { common.StopTurn("s1") })
 	require.Empty(t, u.turnOutcome)
 	_, cmd := u.Update(agentRunSubmittedMsg{sessionID: "s1", gen: u.submissionGen})
 	runCmds(u, cmd)

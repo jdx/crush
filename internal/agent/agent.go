@@ -176,9 +176,10 @@ func filterToolsForChannel(agentTools []fantasy.AgentTool, channel string, state
 }
 
 type turnOutcome struct {
-	completed bool
-	result    *fantasy.AgentResult
-	err       error
+	finishedAt time.Time
+	completed  bool
+	result     *fantasy.AgentResult
+	err        error
 }
 
 type SessionAgent interface {
@@ -522,9 +523,10 @@ func (a *sessionAgent) publishCanceledQueueDrops(drops []SessionAgentCall) {
 		// Detached queue entries have no callbacks. Preserve this batch's
 		// deadline rather than creating a new publication budget per entry.
 		a.runComplete.PublishMustDeliver(ctx, pubsub.UpdatedEvent, notify.RunComplete{
-			SessionID: d.SessionID,
-			RunID:     d.RunID,
-			Cancelled: true,
+			FinishedAt: time.Now(),
+			SessionID:  d.SessionID,
+			RunID:      d.RunID,
+			Cancelled:  true,
 		})
 	}
 }
@@ -609,6 +611,14 @@ func (a *sessionAgent) persistCanceledTurn(ctx context.Context, call SessionAgen
 // observes exactly one terminal event regardless of which Run branch ends
 // the turn.
 func (a *sessionAgent) publishRunComplete(ctx context.Context, call SessionAgentCall, complete notify.RunComplete) {
+	// A final answer may freeze before its automatic summary drains queued
+	// work. Publication order must not change that logical completion time.
+	if complete.FinishedAt.IsZero() && call.turn != nil {
+		complete.FinishedAt = call.turn.finishedAt
+	}
+	if complete.FinishedAt.IsZero() {
+		complete.FinishedAt = time.Now()
+	}
 	if call.OnComplete != nil {
 		call.OnComplete(complete)
 		return
@@ -686,6 +696,7 @@ func (a *sessionAgent) finishTurn(call SessionAgentCall, result *fantasy.AgentRe
 		return
 	}
 	call.turn.completed = true
+	call.turn.finishedAt = time.Now()
 	call.turn.result, call.turn.err = result, err
 	if err != nil && !errors.Is(err, context.Canceled) && call.OnComplete == nil && a.notify != nil {
 		a.notify.Publish(pubsub.CreatedEvent, notify.Notification{

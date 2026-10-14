@@ -1126,3 +1126,17 @@ func TestAppWorkspace_AgentSessionIdleKnown(t *testing.T) {
 	require.NoError(t, err, "an absent local coordinator is known idle, not a failed probe")
 	require.False(t, busy)
 }
+
+func TestRunCompletePreservesLogicalCompletionTime(t *testing.T) {
+	t.Parallel()
+	w := &ClientWorkspace{}
+	for _, finishedAt := range []time.Time{{}, time.Unix(123, 456).UTC()} {
+		translated := w.translateEvent(pubsub.Event[proto.RunComplete]{Payload: proto.RunComplete{
+			SessionID: "session", FinishedAt: finishedAt, Error: "failed",
+		}})
+		event, ok := translated.(pubsub.Event[notify.RunComplete])
+		require.True(t, ok)
+		require.Equal(t, finishedAt, event.Payload.FinishedAt)
+		require.Equal(t, "failed", event.Payload.Error)
+	}
+}

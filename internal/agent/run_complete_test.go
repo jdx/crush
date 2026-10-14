@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/agent/notify"
+	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
@@ -16,6 +17,10 @@ import (
 type canceledPreparationSession struct {
 	session.Service
 }
+
+type preparationFlushMessages struct{ message.Service }
+
+func (preparationFlushMessages) FlushAll(context.Context) error { return nil }
 
 func newQueueTestAgent(t *testing.T) *sessionAgent {
 	t.Helper()
@@ -83,7 +88,7 @@ func TestRun_OwnerlessPreparationCancellationPublishesWithBackpressure(t *testin
 		defer broker.Shutdown()
 		completions := broker.Subscribe(t.Context())
 		sa := NewSessionAgent(SessionAgentOptions{
-			Sessions: canceledPreparationSession{}, RunComplete: broker,
+			Sessions: canceledPreparationSession{}, Messages: preparationFlushMessages{}, RunComplete: broker,
 		})
 		// A promoted call inherits the outer dispatch's context marker.
 		// Publishing its completion must not mark that outer call complete.

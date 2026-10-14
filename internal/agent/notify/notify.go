@@ -3,6 +3,8 @@
 // events without importing UI packages.
 package notify
 
+import "time"
+
 // Type identifies the kind of agent notification.
 type Type string
 
@@ -80,10 +82,13 @@ type Notification struct {
 // terminal event even when the session is busy and other turns are
 // finishing on the same session.
 type RunComplete struct {
-	SessionID string
-	RunID     string
-	MessageID string
-	Text      string
-	Error     string
-	Cancelled bool
+	// FinishedAt orders logical completions before coordinator buffering.
+	// Delivery order can differ when an initial caller drains queued turns.
+	FinishedAt time.Time
+	SessionID  string
+	RunID      string
+	MessageID  string
+	Text       string
+	Error      string
+	Cancelled  bool
 }
